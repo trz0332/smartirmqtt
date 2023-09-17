@@ -1,0 +1,167 @@
+
+
+
+mqtt:
+  id: mqtt_client
+  broker: mqtt.iot.org
+  port: 1883
+  username: pi
+  password: xxxx
+  discovery_prefix: tj
+  discovery_object_id_generator: device_name
+  discovery_unique_id_generator: mac
+  log_topic:
+    topic: "${device_name}/logs"
+    level: debug
+  discovery: true
+  
+ota:
+  safe_mode: true
+  password: trz717706
+  on_state_change:
+    then:
+      - lambda: "App.feed_wdt();delay(1);"
+captive_portal:
+
+web_server:
+  port: 80
+  version: 2
+  auth:
+    username: trz0332
+    password: trz717706
+wifi:
+  networks:
+  - ssid: iot
+    password: trz1q2s3c
+
+  reboot_timeout: 1200s
+  fast_connect: true
+  ap:
+    ssid: esphome
+    password: trz717706
+
+
+
+
+packages:
+  deviceinfo: !include  deviceinfo.yaml
+
+substitutions:
+  device_name: esp32mmw
+  #device_name: esp32mmwsolo
+  gpio_ir_t: GPIO14
+  gpio_ir_r: GPIO26
+  gpio_button: GPIO0
+  gpio_uart_rx: GPIO16
+  gpio_uart_tx: GPIO17
+  gpio_occupancy: GPIO4
+  gpio_adc: GPIO32
+  config_version: CZG-XRA2413-esp32-mqtt-20230916
+
+
+
+
+esphome:
+  name: $device_name
+  platform: esp32
+  board: esp32doit-devkit-v1
+  name_add_mac_suffix: yes 
+  build_path: ../build/$device_name
+  includes:
+    - XRA2413MT.h
+
+
+  on_boot: 
+    - priority: 300
+      then:
+        - lambda: |-
+              MQTTMessage new_birth_message;
+              new_birth_message.topic = App.get_name() + "/" + "status";
+              new_birth_message.payload = "online";
+              new_birth_message.qos = 1;
+              new_birth_message.retain = true;
+              id(mqtt_client).set_birth_message(std::move(new_birth_message));
+
+              MQTTMessage new_last_message;
+              new_last_message.topic =   App.get_name() + "/" + "status";
+              new_last_message.payload = "offline";
+              new_last_message.qos = 1;
+              new_last_message.retain = true;
+              id(mqtt_client).set_last_will(std::move(new_last_message));
+
+              MQTTMessage new_shutdown_message;
+              new_shutdown_message.topic =   App.get_name() + "/" + "status";
+              new_shutdown_message.payload = "offline";
+              new_shutdown_message.qos = 1;
+              new_shutdown_message.retain = true;
+              id(mqtt_client).set_shutdown_message(std::move(new_shutdown_message));
+
+              id(mqtt_client).set_topic_prefix(App.get_name());
+
+    - priority: -100
+      then:
+        - lambda: |-
+            id(mqtt_client).subscribe(App.get_name() + "/ir_send", [=](const std::string &topic, const std::string &payload) {
+            
+            std::string txstr = payload;
+            std::vector<int> txv1;
+            if (!txstr.empty()) {
+              txstr = txstr.substr(1);  
+              }
+            if (!txstr.empty()) {
+              txstr = txstr.substr(0, txstr.size() - 1);  
+              }
+              txstr.erase(std::remove_if(txstr.begin(), txstr.end(), [](char c) { return std::isspace(c); }), txstr.end());
+  
+            char * token;
+            char seps[] = ",";
+            token = strtok (&txstr[0],seps);
+            while (token != NULL)
+            {
+              txv1.push_back( atoi(token) );
+              token = strtok (NULL, seps);
+            }
+            for (int i = 0; i < txv1.size(); i++) {
+              if (i % 2 == 1) {  // 如果是偶数位
+                txv1[i] = -txv1[i];  // 在偶数位的数据前面加上负号
+              }
+            }
+            id(txv)=txv1;
+            id(irsend).press();
+            });
+            //
+logger:
+  level: ERROR  #不同的log等级看到的信息详细程度不一样，信息量从少到多依次为NONE、ERROR、WARN、INFO、DEBUG、VERBOSE、VERY_VERBOSE
+#  baud_rate: 0 #设置为0关闭通过UART的log输出
+
+
+globals:
+  - id: txv
+    type: std::vector<int>
+    restore_value: false
+
+button:
+  - platform: template
+    name: "irsend"
+    id: "irsend"
+    internal: true
+    on_press:
+      then:
+        - remote_transmitter.transmit_raw:
+            carrier_frequency: 38kHz
+            code: !lambda |-
+                    return id(txv);
+remote_transmitter:
+  pin: $gpio_ir_t
+  carrier_duty_percent: 50%
+  id: my_transmitter
+
+remote_receiver:
+  pin:
+    number: $gpio_ir_r
+    inverted: true
+  dump: all
+
+
+
+
