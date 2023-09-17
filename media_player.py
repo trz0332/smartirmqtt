@@ -43,6 +43,38 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_DEVICE_CLASS, default=DEFAULT_DEVICE_CLASS): cv.string
 })
 
+def blbase642raw(cod):
+    code1 = {
+            'functionname': 'base64',
+            'raw': irgen.gen_raw_from_broadlink_base64(cod.encode())
+        }
+    code=[]
+    for v in code1['raw']:
+        if v > 0:
+            code.append(int(v))
+        else:
+            code.append(int(0-v))
+
+
+    return code
+
+class analyse_data2:
+    key_list = []
+    
+    def get_key(self, data):
+        if isinstance(data, dict):
+            for key in data.keys():
+                if isinstance(data[key], str):   
+                    data[key]=blbase642raw(data[key])
+                else:
+                    self.get_key(data[key])
+        return data
+
+def broadlink2raw(device_data):
+    device_data['supportedController']= 'MQTT'
+    ts=analyse_data2()
+    device_data['commands']=ts.get_key(device_data['commands'])
+    return device_data
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the IR Media Player platform."""
     device_code = config.get(CONF_DEVICE_CODE)
@@ -75,6 +107,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     with open(device_json_path) as j:
         try:
             device_data = json.load(j)
+            if device_data['supportedController']== 'Broadlink' and device_data['commandsEncoding']== 'Base64':
+                device_data['supportedController']= 'MQTT' 
+                device_data['commandsEncoding']= 'Raw'
+                device_data=broadlink2raw(device_data)
         except Exception:
             _LOGGER.error("The device JSON file is invalid")
             return
